@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ココフォリアのログをエクセルのブックに変換するツール</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: auto;
+        }
+
+        .container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 5px;
+        }
+
+        .description-toggle {
+            cursor: pointer;
+            color: #007bff;
+            text-decoration: underline;
+        }
+
+        .description-content {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+
+        #message {
+            margin-top: 10px;
+            color: green;
+        }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+
+        .update-history summary,
+        .author-info summary {
+            cursor: pointer;
+            color: #007bff;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>ココフォリアのログをエクセルのブックに変換するツール</h1>
+
+        <div class="description-toggle" onclick="toggleDescription()">使い方を表示</div>
+        <div class="description-content" id="description">
+            <p>ココフォリアのログをxlsx形式(excelのブック)に変換するツールです。<br>タブ名=シート名でそれぞれ分かれたログが出力されるほか、すべての発言をまとめた[all]シートも出力されます。</p>
+            <p><strong>使い方</strong></p>
+            <p>1. ココフォリアのログをアップロードします。</p>
+            <p>2. 「変換」ボタンをクリックします。</p>
+            <p>3. 変換が完了したら、「Excelブックをダウンロード」リンクが表示されます。</p>
+            <p>4. リンクをクリックして.xlsxをダウンロードします。</p>
+        </div>
+
+        <div class="options">
+            <input type="file" id="fileInput" accept=".html">
+            <button id="convertButton">変換</button>
+        </div>
+
+        <div id="downloadLink"></div>
+
+        <div class="footer">
+            <details class="update-history">
+                <summary>更新履歴</summary>
+                <p>2024-12-20: 公開</p>
+            </details>
+            <details class="author-info">
+                <summary>作者情報</summary>
+                <p>作者：しるべ(<a href="https://x.com/qxoiUioxp" target="_blank"
+                        rel="noopener noreferrer">https://x.com/qxoiUioxp</a>)</p>
+            </details>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const convertButton = document.getElementById('convertButton');
+        const downloadLink = document.getElementById('downloadLink');
+
+        convertButton.addEventListener('click', convertFile);
+
+        function toggleDescription() {
+            const description = document.getElementById('description');
+            description.style.display = description.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function convertFile() {
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('ファイルを選択してください。');
+                return;
+            }
+
+            const content = await file.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(content, 'text/html');
+
+            const rows = Array.from(doc.querySelectorAll('body > p')).map(p => {
+                const spans = p.querySelectorAll('span');
+                const tabText = spans[0] ? spans[0].textContent.trim().replace(/^[\[]|[\]]$/g, '') : '';
+                const speaker = spans[1] ? spans[1].textContent.trim().replace(/:$/, '') : '';
+                const contentSpan = spans[2];
+                const content = contentSpan ? contentSpan.innerHTML.replace(/<br\s*\/?>/g, '\n').trim() : '';
+                const color = p.getAttribute('style') ? p.getAttribute('style').match(/color:(#[0-9A-Fa-f]{6})/)?.[1] : '';
+
+                return [speaker, tabText, content, color];
+            });
+
+            const tabs = Array.from(new Set(rows.map(row => row[1])));
+            const uniqueTabs = Array.from(new Set(['all', 'main', 'info', 'other', ...tabs]));
+
+            const workbook = new ExcelJS.Workbook();
+            const headers = ["発言者", "発言タブ", "発言内容"];
+
+            uniqueTabs.forEach(tabName => {
+                const sheet = workbook.addWorksheet(tabName);
+                sheet.addRow(headers);
+                let sheetData;
+                if (tabName === 'all') {
+                    sheetData = rows;
+                } else {
+                    sheetData = rows.filter(row => row[1] === tabName);
+                }
+                sheetData.forEach(row => {
+                    const excelRow = sheet.addRow(row.slice(0, 3));
+                    if (row[3]) {
+                        excelRow.getCell(1).font = {
+                            color: { argb: row[3].replace('#', '') }
+                        };
+                    }
+                });
+                sheet.columns.forEach((column, index) => {
+                    let maxLength = 0;
+                    column.eachCell({ includeEmpty: true }, (cell) => {
+                        const columnLength = cell.value ? cell.value.toString().length : 10;
+                        if (columnLength > maxLength) {
+                            maxLength = columnLength;
+                        }
+                    });
+                    column.width = Math.min(maxLength + 2, 100);
+                });
+                sheet.getRow(1).font = { bold: true };
+                sheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+            const url = URL.createObjectURL(blob);
+            downloadLink.innerHTML = `<a href="${url}" download="ccfolia_log_converted.xlsx">Excelファイルをダウンロード</a>`;
+            downloadLink.style.display = 'block';
+        }
+    </script>
+</body>
+
+</html>
