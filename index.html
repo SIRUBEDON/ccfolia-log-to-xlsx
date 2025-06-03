@@ -142,7 +142,15 @@
                 const speaker = spans[1] ? spans[1].textContent.trim().replace(/:$/, '') : '';
                 const contentSpan = spans[2];
                 const content = contentSpan ? contentSpan.innerHTML.replace(/<br\s*\/?>/g, '\n').trim() : '';
-                const color = p.getAttribute('style') ? p.getAttribute('style').match(/color:(#[0-9A-Fa-f]{6})/)?.[1] : '';
+                let color = '';
+                const styleAttr = p.getAttribute('style') || '';
+                const colorMatch = styleAttr.match(/color\s*:\s*(#[0-9A-Fa-f]{3,6})/);
+                if (colorMatch) {
+                    color = colorMatch[1];
+                    if (color.length === 4) {
+                        color = '#' + color[1].repeat(2) + color[2].repeat(2) + color[3].repeat(2);
+                    }
+                }
 
                 return [speaker, tabText, content, color];
             });
@@ -165,8 +173,9 @@
                 sheetData.forEach(row => {
                     const excelRow = sheet.addRow(row.slice(0, 3));
                     if (row[3]) {
+                        const hex = row[3].replace('#', '').toUpperCase();
                         excelRow.getCell(1).font = {
-                            color: { argb: row[3].replace('#', '') }
+                            color: { argb: `FF${hex}` }
                         };
                     }
                 });
