@@ -1,6 +1,7 @@
 const fileInput = document.getElementById('fileInput');
 const convertButton = document.getElementById('convertButton');
 const downloadLink = document.getElementById('downloadLink');
+let parsedRows = []; // パース結果を保持する変数
 
 fileInput.addEventListener('change', handleFileSelect);
 convertButton.addEventListener('click', convertFile);
@@ -10,25 +11,20 @@ function toggleDescription() {
     description.style.display = description.style.display === 'none' ? 'block' : 'none';
 }
 
-function handleFileSelect() {
+async function handleFileSelect() {
     const file = fileInput.files[0];
+    const outputOptions = document.getElementById('outputOptions');
     if (!file) {
-        document.getElementById('outputOptions').style.display = 'none';
+        outputOptions.style.display = 'none';
+        parsedRows = [];
         return;
     }
-    document.getElementById('outputOptions').style.display = 'block';
-    displayTabSelection();
-}
-
-async function displayTabSelection() {
-    const file = fileInput.files[0];
-    if (!file) return;
 
     const content = await file.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, 'text/html');
 
-    const rows = Array.from(doc.querySelectorAll('body > p')).map(p => {
+    parsedRows = Array.from(doc.querySelectorAll('body > p')).map(p => {
         const spans = p.querySelectorAll('span');
         const tabText = spans[0] ? spans[0].textContent.trim().replace(/^[\[]|[\]]$/g, '') : '';
         const speaker = spans[1] ? spans[1].textContent.trim().replace(/:$/, '') : '';
@@ -43,11 +39,15 @@ async function displayTabSelection() {
                 color = '#' + color[1].repeat(2) + color[2].repeat(2) + color[3].repeat(2);
             }
         }
-
         return [speaker, tabText, content, color];
     });
 
-    const tabs = Array.from(new Set(rows.map(row => row[1])));
+    displayTabSelection();
+    outputOptions.style.display = 'block';
+}
+
+function displayTabSelection() {
+    const tabs = Array.from(new Set(parsedRows.map(row => row[1])));
     const uniqueTabs = ['all', ...new Set(tabs.filter(t => t))];
 
     const tabSelectionDiv = document.getElementById('tabSelection');
@@ -68,34 +68,10 @@ async function displayTabSelection() {
 }
 
 async function convertFile() {
-    const file = fileInput.files[0];
-    if (!file) {
-        alert('ファイルを選択してください。');
+    if (parsedRows.length === 0) {
+        alert('ファイルをまず選択してください。');
         return;
     }
-
-    const content = await file.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(content, 'text/html');
-
-    const rows = Array.from(doc.querySelectorAll('body > p')).map(p => {
-        const spans = p.querySelectorAll('span');
-        const tabText = spans[0] ? spans[0].textContent.trim().replace(/^[\[]|[\]]$/g, '') : '';
-        const speaker = spans[1] ? spans[1].textContent.trim().replace(/:$/, '') : '';
-        const contentSpan = spans[2];
-        const content = contentSpan ? contentSpan.innerHTML.replace(/<br\s*\/?>/g, '\n').trim() : '';
-        let color = '';
-        const styleAttr = p.getAttribute('style') || '';
-        const colorMatch = styleAttr.match(/color\s*:\s*(#[0-9A-Fa-f]{3,6})/);
-        if (colorMatch) {
-            color = colorMatch[1];
-            if (color.length === 4) {
-                color = '#' + color[1].repeat(2) + color[2].repeat(2) + color[3].repeat(2);
-            }
-        }
-
-        return [speaker, tabText, content, color];
-    });
 
     const selectedTabs = Array.from(document.querySelectorAll('#tabSelection input[type="checkbox"]:checked')).map(cb => cb.value);
     if (selectedTabs.length === 0) {
@@ -107,8 +83,6 @@ async function convertFile() {
 
     if (outputFormat === 'xlsx') {
         const workbook = new ExcelJS.Workbook();
-    const headers = ["発言者", "発言タブ", "発言内容"];
-
         const headers = ["発言者", "発言タブ", "発言内容"];
 
         selectedTabs.forEach(tabName => {
@@ -116,9 +90,9 @@ async function convertFile() {
             sheet.addRow(headers);
             let sheetData;
             if (tabName === 'all') {
-                sheetData = rows;
+                sheetData = parsedRows;
             } else {
-                sheetData = rows.filter(row => row[1] === tabName);
+                sheetData = parsedRows.filter(row => row[1] === tabName);
             }
             sheetData.forEach(row => {
                 const excelRow = sheet.addRow(row.slice(0, 3));
@@ -150,15 +124,15 @@ async function convertFile() {
         downloadLink.innerHTML = `<a href="${url}" download="ccfolia_log_converted.xlsx">Excelファイルをダウンロード</a>`;
         downloadLink.style.display = 'block';
     } else if (outputFormat === 'csv') {
-        let csvContent = "data:text/csv;charset=utf-8,";
+        let csvContent = "\uFEFF"; // BOM for UTF-8
         const headers = ["発言者", "発言タブ", "発言内容"];
         
         selectedTabs.forEach(tabName => {
             let sheetData;
             if (tabName === 'all') {
-                sheetData = rows;
+                sheetData = parsedRows;
             } else {
-                sheetData = rows.filter(row => row[1] === tabName);
+                sheetData = parsedRows.filter(row => row[1] === tabName);
             }
 
             if(selectedTabs.length > 1) {
@@ -168,17 +142,14 @@ async function convertFile() {
             csvContent += headers.join(",") + "\r\n";
 
             sheetData.forEach(rowArray => {
-                let row = rowArray.slice(0, 3).map(cell => `"${cell.toString().replace(/"/g, '""')}"`).join(",");
+                let row = rowArray.slice(0, 3).map(cell => `"${(cell || "").toString().replace(/"/g, '""')}"`).join(",");
                 csvContent += row + "\r\n";
             });
         });
 
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "ccfolia_log_converted.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        downloadLink.innerHTML = `<a href="${url}" download="ccfolia_log_converted.csv">CSVファイルをダウンロード</a>`;
+        downloadLink.style.display = 'block';
     }
 }
