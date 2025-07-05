@@ -35,6 +35,17 @@
 
         <div class="options">
             <input type="file" id="fileInput" accept=".html">
+        </div>
+
+        <div id="outputOptions" style="display: none;">
+            <h3>出力オプション</h3>
+            <div class="output-format">
+                <label><input type="radio" name="format" value="xlsx" checked> XLSX</label>
+                <label><input type="radio" name="format" value="csv"> CSV</label>
+            </div>
+            <div id="tabSelection">
+                <h4>変換するタブを選択してください:</h4>
+            </div>
             <button id="convertButton">変換</button>
         </div>
 
