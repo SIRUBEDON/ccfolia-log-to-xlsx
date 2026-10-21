@@ -67,6 +67,16 @@ function displayTabSelection() {
     });
 }
 
+// Quoting protects CSV structure; the apostrophe prevents spreadsheet formula evaluation.
+// Include leading whitespace/control characters and full-width formula prefixes.
+function serializeCsvCell(value) {
+    let text = String(value ?? '');
+    if (/^[\s\uFEFF]*[=+\-@＝＋－＠]/u.test(text) || /^[\t\r\n]/.test(text)) {
+        text = "'" + text;
+    }
+    return '"' + text.replace(/"/g, '""') + '"';
+}
+
 async function convertFile() {
     if (parsedRows.length === 0) {
         alert('ファイルをまず選択してください。');
@@ -136,13 +146,13 @@ async function convertFile() {
             }
 
             if(selectedTabs.length > 1) {
-                csvContent += `\n${tabName}\n`;
+                csvContent += `\r\n${serializeCsvCell(tabName)}\r\n`;
             }
             
             csvContent += headers.join(",") + "\r\n";
 
             sheetData.forEach(rowArray => {
-                let row = rowArray.slice(0, 3).map(cell => `"${(cell || "").toString().replace(/"/g, '""')}"`).join(",");
+                let row = rowArray.slice(0, 3).map(serializeCsvCell).join(",");
                 csvContent += row + "\r\n";
             });
         });
